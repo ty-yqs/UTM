@@ -29,9 +29,9 @@ struct VMConfigNetworkView: View {
                         Text("Enabled")
                     })
                     if config.networkEnabled {
-                        VMConfigStringPicker(selection: $config.networkCard, label: Text("Emulated Network Card"), rawValues: UTMConfiguration.supportedNetworkCards(), displayValues: UTMConfiguration.supportedNetworkCardsPretty())
+                        VMConfigStringPicker(selection: $config.networkCard, label: Text("Emulated Network Card"), rawValues: UTMConfiguration.supportedNetworkCards(forArchitecture: config.systemArchitecture), displayValues: UTMConfiguration.supportedNetworkCards(forArchitecturePretty: config.systemArchitecture))
                     }
-                }
+                }.disabled(UTMConfiguration.supportedNetworkCards(forArchitecture: config.systemArchitecture)?.isEmpty ?? true)
                 
                 if config.networkEnabled {
                     Toggle(isOn: $showAdvanced.animation(), label: {
@@ -45,9 +45,9 @@ struct VMConfigNetworkView: View {
                         IPConfigurationSection(config: config).multilineTextAlignment(.trailing)
                         #endif
                     }
+                    
+                    VMConfigNetworkPortForwardView(config: config)
                 }
-                
-                VMConfigNetworkPortForwardView(config: config)
             }
         }
     }

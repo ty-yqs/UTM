@@ -1,6 +1,11 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
+
+command -v realpath >/dev/null 2>&1 || realpath() {
+    [[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}"
+}
+BASEDIR="$(dirname "$(realpath $0)")"
 
 usage() {
 	echo "usage: $0 MODE inputXcarchive outputPath [PROFILE_NAME TEAM_ID]"
@@ -52,11 +57,11 @@ if [ -z "$OUTPUT" ]; then
 fi
 
 itunes_sign() {
-	INPUT=$1
-	OUTPUT=$2
-	PROFILE_NAME=$3
-	TEAM_ID=$4
-	OPTIONS="/tmp/options.plist"
+	local INPUT=$1
+	local OUTPUT=$2
+	local PROFILE_NAME=$3
+	local TEAM_ID=$4
+	local OPTIONS="/tmp/options.plist"
 
 	if [ -z "$PROFILE_NAME" || -z "$TEAM_ID" ]; then
 		echo "Invalid profile name or team id!"
@@ -94,9 +99,9 @@ EOL
 }
 
 fake_sign() {
-	_input=$1
-	_output=$2
-	_fakeent=$3
+	local _input=$1
+	local _output=$2
+	local _fakeent=$3
 
 	mkdir -p "$_output"
 	cp -r "$_input" "$_output/"
@@ -106,13 +111,14 @@ fake_sign() {
 }
 
 create_deb() {
-	INPUT=$1
-	INPUT_APP="$INPUT/Products/Applications/UTM.app"
-	OUTPUT=$2
-	FAKEENT=$3
-	DEB_TMP="$OUTPUT/deb"
-	SIZE_KIB=`du -sk "$INPUT_APP"| cut -f 1`
-	VERSION=`/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INPUT_APP/Info.plist"`
+	local INPUT=$1
+	local INPUT_APP="$INPUT/Products/Applications/UTM.app"
+	local OUTPUT=$2
+	local FAKEENT=$3
+	local DEB_TMP="$OUTPUT/deb"
+	local IPA_PATH="$DEB_TMP/Library/Caches/com.utmapp.UTM"
+	local SIZE_KIB=`du -sk "$INPUT_APP"| cut -f 1`
+	local VERSION=`/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INPUT_APP/Info.plist"`
 
 	mkdir -p "$OUTPUT"
 	rm -rf "$DEB_TMP"
@@ -122,7 +128,7 @@ Package: com.utmapp.UTM
 Version: ${VERSION}
 Section: Productivity
 Architecture: iphoneos-arm
-Depends: firmware (>=11.0), firmware-sbin
+Depends: firmware (>=11.0), firmware-sbin, net.angelxwind.appsyncunified
 Installed-Size: ${SIZE_KIB}
 Maintainer: osy <dev@getutm.app>
 Description: Virtual machines for iOS
@@ -135,16 +141,24 @@ Moderndepiction: https://cydia.getutm.app/depiction/native/com.utmapp.UTM.json
 Sileodepiction: https://cydia.getutm.app/depiction/native/com.utmapp.UTM.json
 Tags: compatible_min::ios11.0
 EOL
-	fake_sign "$INPUT/Products/Applications" "$DEB_TMP" "$FAKEENT"
+	xcrun -sdk iphoneos clang -arch arm64 -fobjc-arc "$BASEDIR/deb/postinst.m" "$BASEDIR/deb/CoreServices.tbd" -o "$DEB_TMP/DEBIAN/postinst"
+	strip "$DEB_TMP/DEBIAN/postinst"
+	ldid -S"$BASEDIR/deb/postinst.xml" "$DEB_TMP/DEBIAN/postinst"
+	xcrun -sdk iphoneos clang -arch arm64 -fobjc-arc "$BASEDIR/deb/prerm.m" "$BASEDIR/deb/CoreServices.tbd" -o "$DEB_TMP/DEBIAN/prerm"
+	strip "$DEB_TMP/DEBIAN/prerm"
+	ldid -S"$BASEDIR/deb/prerm.xml" "$DEB_TMP/DEBIAN/prerm"
+	mkdir -p "$IPA_PATH"
+	create_fake_ipa "$INPUT" "$IPA_PATH" "$FAKEENT"
 	dpkg-deb -b -Zgzip -z9 "$DEB_TMP" "$OUTPUT/UTM.deb"
 	rm -r "$DEB_TMP"
 }
 
 create_fake_ipa() {
-	INPUT=$1
-	OUTPUT=$2
-	FAKEENT=$3
+	local INPUT=$1
+	local OUTPUT=$2
+	local FAKEENT=$3
 
+	pwd="$(pwd)"
 	mkdir -p "$OUTPUT"
 	rm -rf "$OUTPUT/Applications" "$OUTPUT/Payload" "$OUTPUT/UTM.ipa"
 	fake_sign "$INPUT/Products/Applications" "$OUTPUT" "$FAKEENT"
@@ -152,6 +166,7 @@ create_fake_ipa() {
 	cd "$OUTPUT"
 	zip -r "UTM.ipa" "Payload" -x "._*" -x ".DS_Store" -x "__MACOSX"
 	rm -r "Payload"
+	cd "$pwd"
 }
 
 case $MODE in

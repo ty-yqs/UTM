@@ -21,6 +21,12 @@
 #import "UTMConfiguration+Sharing.h"
 #import "UTMConfiguration+System.h"
 
+@interface UTMConfiguration ()
+
+- (NSString *)generateMacAddress;
+
+@end
+
 @implementation UTMConfiguration (Defaults)
 
 - (void)loadDefaults {
@@ -30,6 +36,7 @@
     self.systemMemory = @512;
     self.systemBootDevice = @"cd";
     self.systemUUID = [[NSUUID UUID] UUIDString];
+    self.displayCard = @"qxl-vga";
     self.displayUpscaler = @"linear";
     self.displayDownscaler = @"linear";
     self.consoleFont = @"Menlo";
@@ -37,8 +44,9 @@
     self.consoleTheme = @"Default";
     self.networkEnabled = YES;
     self.soundEnabled = YES;
-    self.soundCard = @"ac97";
+    self.soundCard = @"AC97";
     self.networkCard = @"rtl8139";
+    self.networkCardMac = [self generateMacAddress];
     self.shareClipboardEnabled = YES;
     self.name = [NSUUID UUID].UUIDString;
     self.existingPath = nil;
@@ -47,13 +55,19 @@
 
 - (void)loadDefaultsForTarget:(nullable NSString *)target architecture:(nullable NSString *)architecture {
     if ([target hasPrefix:@"pc"] || [target hasPrefix:@"q35"]) {
-        self.soundCard = @"ac97";
+        self.soundCard = @"AC97";
+        self.soundEnabled = YES;
         self.networkCard = @"rtl8139";
+        self.networkEnabled = YES;
         self.shareClipboardEnabled = YES;
+        self.displayCard = @"qxl-vga";
     } else if ([target isEqualToString:@"virt"] || [target hasPrefix:@"virt-"]) {
-        self.soundCard = @"hda";
+        self.soundCard = @"intel-hda";
+        self.soundEnabled = YES;
         self.networkCard = @"virtio-net-pci";
+        self.networkEnabled = YES;
         self.shareClipboardEnabled = YES;
+        self.displayCard = @"virtio-ramfb";
     } else if ([target isEqualToString:@"mac99"]) {
         self.soundEnabled = NO;
     } else if ([target isEqualToString:@"isapc"]) {

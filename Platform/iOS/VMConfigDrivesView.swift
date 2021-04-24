@@ -110,7 +110,13 @@ struct VMConfigDrivesView: View {
     
     private func moveDrives(source: IndexSet, destination: Int) {
         for offset in source {
-            config.moveDrive(offset, to: destination)
+            let realDestination: Int
+            if offset < destination {
+                realDestination = destination - 1
+            } else {
+                realDestination = destination
+            }
+            config.moveDrive(offset, to: realDestination)
         }
     }
 }
@@ -138,6 +144,9 @@ private struct CreateDrive: View {
                     Text("Done")
                 }))
         }.navigationViewStyle(StackNavigationViewStyle())
+        .onAppear {
+            driveImage.reset(forSystemTarget: target, removable: false)
+        }
     }
     
     private func cancel() {

@@ -136,10 +136,10 @@ def parseCpu(listing):
     def parseSparcFlags(line):
         if line.startswith('Default CPU feature flags'):
             flags = line.split(':')[1].strip()
-            return ['-' + flag for flag in flags.split(' ')]
+            return [Name('-' + flag, '-' + flag) for flag in flags.split(' ')]
         elif line.startswith('Available CPU feature flags'):
             flags = line.split(':')[1].strip()
-            return ['+' + flag for flag in flags.split(' ')]
+            return [Name('+' + flag, '+' + flag) for flag in flags.split(' ')]
         elif line.startswith('Numerical features'):
             return []
         else:
@@ -148,12 +148,13 @@ def parseCpu(listing):
         if line.endswith(':'):
             return []
         else:
-            return [line.split(' ')[0]]
+            flag = line.split(' ')[0]
+            return [Name(flag, flag)]
     def parseX86Flags(line):
         flags = []
         for flag in line.split(' '):
             if flag:
-                flags.append(flag)
+                flags.append(Name(flag, flag))
         return flags
     output = enumerate(listing.splitlines())
     cpus = [Name('default', 'Default')]
@@ -181,7 +182,7 @@ def parseCpu(listing):
             flags += parseX86Flags(line)
         elif header[1] == 'Recognized feature flags:':
             flags += parseS390Flags(line)
-    flags = sorted(set(flags)) # sort and de-duplicate
+    flags = set(flags) # de-duplicate
     return (cpus, flags)
 
 def sortItems(items):
@@ -202,14 +203,10 @@ def getDefaultMachine(target, machines):
             return idx
     return -1
 
-def getSoundCards(qemu_path):
-    output = subprocess.check_output([qemu_path, '-soundhw', 'help']).decode('utf-8')
-    return parseListing(output)
-
-def getNetworkCards(qemu_path):
+def getDevices(qemu_path):
     output = subprocess.check_output([qemu_path, '-device', 'help']).decode('utf-8')
     devices = parseDeviceListing(output)
-    return devices["Network devices"]
+    return devices
 
 def getCpus(qemu_path):
     output = subprocess.check_output([qemu_path, '-cpu', 'help']).decode('utf-8')
@@ -246,21 +243,26 @@ def generateIndexMap(name, keyName, keys, indexMap):
     output += '}\n\n'
     return output
 
-def generate(targets, cpus, cpuFlags, machines, networkCards, soundCards):
+def generateMapForeachArchitecture(name, targetKeys, targetItems, isPretty=False):
+    return generateMap(name, 'architecture', targetKeys, {target.name: [item.desc if isPretty else item.name for item in sortItems(target.items)] for target in targetItems})
+
+def generate(targets, cpus, cpuFlags, machines, displayCards, networkCards, soundCards):
     targetKeys = [item.name for item in targets]
     output  = HEADER
     output += generateArray('supportedArchitectures', targetKeys)
     output += generateArray('supportedArchitecturesPretty', [item.desc for item in targets])
-    output += generateMap('supportedCpusForArchitecture', 'architecture', targetKeys, {cpu.name: [item.name for item in cpu.items] for cpu in cpus})
-    output += generateMap('supportedCpusForArchitecturePretty', 'architecture', targetKeys, {cpu.name: [item.desc for item in cpu.items] for cpu in cpus})
-    output += generateMap('supportedCpuFlagsForArchitecture', 'architecture', targetKeys, {machine.name: [item for item in machine.items] for machine in cpuFlags})
-    output += generateMap('supportedTargetsForArchitecture', 'architecture', targetKeys, {machine.name: [item.name for item in machine.items] for machine in machines})
-    output += generateMap('supportedTargetsForArchitecturePretty', 'architecture', targetKeys, {machine.name: [item.desc for item in machine.items] for machine in machines})
+    output += generateMapForeachArchitecture('supportedCpusForArchitecture', targetKeys, cpus)
+    output += generateMapForeachArchitecture('supportedCpusForArchitecturePretty', targetKeys, cpus, isPretty=True)
+    output += generateMapForeachArchitecture('supportedCpuFlagsForArchitecture', targetKeys, cpuFlags)
+    output += generateMapForeachArchitecture('supportedTargetsForArchitecture', targetKeys, machines)
+    output += generateMapForeachArchitecture('supportedTargetsForArchitecturePretty', targetKeys, machines, isPretty=True)
     output += generateIndexMap('defaultTargetIndexForArchitecture', 'architecture', targetKeys, {machine.name: machine.default for machine in machines})
-    output += generateArray('supportedNetworkCards', [item.name for item in networkCards])
-    output += generateArray('supportedNetworkCardsPretty', [item.desc for item in networkCards])
-    output += generateArray('supportedSoundCardDevices', [item.name for item in soundCards])
-    output += generateArray('supportedSoundCardDevicesPretty', [item.desc for item in soundCards])
+    output += generateMapForeachArchitecture('supportedDisplayCardsForArchitecture', targetKeys, displayCards)
+    output += generateMapForeachArchitecture('supportedDisplayCardsForArchitecturePretty', targetKeys, displayCards, isPretty=True)
+    output += generateMapForeachArchitecture('supportedNetworkCardsForArchitecture', targetKeys, networkCards)
+    output += generateMapForeachArchitecture('supportedNetworkCardsForArchitecturePretty', targetKeys, networkCards, isPretty=True)
+    output += generateMapForeachArchitecture('supportedSoundCardsForArchitecture', targetKeys, soundCards)
+    output += generateMapForeachArchitecture('supportedSoundCardsForArchitecturePretty', targetKeys, soundCards, isPretty=True)
     output += '@end\n'
     return output
 
@@ -269,8 +271,9 @@ def main(argv):
     allMachines = []
     allCpus = []
     allCpuFlags = []
-    soundCards = set()
-    networkCards = set()
+    allDisplayCards = []
+    allSoundCards = []
+    allNetworkCards = []
     # parse outputs
     for target in TARGETS:
         path = '{}/{}-softmmu/qemu-system-{}'.format(base, target.name, target.name)
@@ -281,13 +284,16 @@ def main(argv):
         machines = sortItems(getMachines(path))
         default = getDefaultMachine(target.name, machines)
         allMachines.append(Architecture(target.name, machines, default))
-        networkCards = networkCards.union(getNetworkCards(path))
-        soundCards = soundCards.union(getSoundCards(path))
+        devices = getDevices(path)
+        allDisplayCards.append(Architecture(target.name, devices["Display devices"], 0))
+        allNetworkCards.append(Architecture(target.name, devices["Network devices"], 0))
+        nonHdaDevices = [device for device in devices["Sound devices"] if device.bus != 'HDA']
+        allSoundCards.append(Architecture(target.name, nonHdaDevices, 0))
         cpus, flags = getCpus(path)
         allCpus.append(Architecture(target.name, cpus, 0))
         allCpuFlags.append(Architecture(target.name, flags, 0))
     # generate constants
-    print(generate(TARGETS, allCpus, allCpuFlags, allMachines, sortItems(networkCards), sortItems(soundCards)))
+    print(generate(TARGETS, allCpus, allCpuFlags, allMachines, allDisplayCards, allNetworkCards, allSoundCards))
 
 if __name__ == "__main__":
     main(sys.argv)

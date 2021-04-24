@@ -23,11 +23,11 @@ struct VMConfigStringPicker<Label> : View where Label : View {
     var rawValues: [String]
     var displayValues: [String]
     
-    init(selection: Binding<String?>, label: Label, rawValues: [String], displayValues: [String]) {
+    init(selection: Binding<String?>, label: Label, rawValues: [String]?, displayValues: [String]?) {
         self._selection = selection
         self.label = label
-        self.rawValues = rawValues
-        self.displayValues = displayValues
+        self.rawValues = rawValues ?? []
+        self.displayValues = displayValues ?? []
     }
     
     var body: some View {
@@ -36,7 +36,7 @@ struct VMConfigStringPicker<Label> : View where Label : View {
                 guard let selection = self.selection else {
                     return 0
                 }
-                return self.rawValues.firstIndex(of: selection) ?? 0
+                return self.rawValues.firstIndex(where: { $0.caseInsensitiveCompare(selection) == .orderedSame }) ?? 0
             },
             set: {
                 self.selection = self.rawValues[$0]

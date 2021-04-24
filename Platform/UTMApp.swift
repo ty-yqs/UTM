@@ -19,6 +19,9 @@ import SwiftUI
 @available(iOS 14, macOS 11, *)
 struct UTMApp: App {
     @StateObject var data = UTMData()
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate: AppDelegate
+    #endif
     
     var body: some Scene {
         WindowGroup {

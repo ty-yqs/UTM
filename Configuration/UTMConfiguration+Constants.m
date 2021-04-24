@@ -27,15 +27,15 @@
 + (NSArray<NSString *>*)supportedOptions:(NSString *)key pretty:(BOOL)pretty {
     if ([key isEqualToString:@"networkCards"]) {
         if (pretty) {
-            return [self supportedNetworkCardsPretty];
+            return [self supportedNetworkCardsForArchitecturePretty:@"x86_64"];
         } else {
-            return [self supportedNetworkCards];
+            return [self supportedNetworkCardsForArchitecture:@"x86_64"];
         }
     } else if ([key isEqualToString:@"soundCards"]) {
         if (pretty) {
-            return [self supportedSoundCardDevicesPretty];
+            return [self supportedSoundCardsForArchitecture:@"x86_64"];
         } else {
-            return [self supportedSoundCardDevices];
+            return [self supportedSoundCardsForArchitecture:@"x86_64"];
         }
     } else if ([key isEqualToString:@"architectures"]) {
         if (pretty) {
@@ -67,6 +67,12 @@
         return [self supportedConsoleThemes];
     } else if ([key isEqualToString:@"consoleFonts"]) {
         return [self supportedConsoleFonts];
+    } else if ([key isEqualToString:@"displayCard"]) {
+        if (pretty) {
+            return [self supportedDisplayCardsForArchitecturePretty:@"x86_64"];
+        } else {
+            return [self supportedDisplayCardsForArchitecture:@"x86_64"];
+        }
     }
     return @[];
 }

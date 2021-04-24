@@ -40,7 +40,7 @@ struct VMConfigSystemView: View {
                 })
                 if showAdvanced {
                     Section(header: Text("CPU")) {
-                        VMConfigStringPicker(selection: $config.systemCPU.animation(), label: EmptyView(), rawValues: UTMConfiguration.supportedCpus(forArchitecture: config.systemArchitecture) ?? [], displayValues: UTMConfiguration.supportedCpus(forArchitecturePretty: config.systemArchitecture) ?? [])
+                        VMConfigStringPicker(selection: $config.systemCPU.animation(), label: EmptyView(), rawValues: UTMConfiguration.supportedCpus(forArchitecture: config.systemArchitecture), displayValues: UTMConfiguration.supportedCpus(forArchitecturePretty: config.systemArchitecture))
                     }
                     CPUFlagsOptions(config: config)
                     Section(header: Text("CPU Cores"), footer: Text("Set to 0 to use maximum supported CPUs. Force multicore might result in incorrect emulation.").padding(.bottom)) {
@@ -134,8 +134,30 @@ struct HardwareOptions: View {
                     let targets = UTMConfiguration.supportedTargets(forArchitecture: arch)
                     config.systemTarget = targets?[index]
                     config.loadDefaults(forTarget: config.systemTarget, architecture: arch)
+                    // disable unsupported hardware
+                    if let displayCard = config.displayCard {
+                        if !UTMConfiguration.supportedDisplayCards(forArchitecture: arch)!.contains(where: { $0.caseInsensitiveCompare(displayCard) == .orderedSame }) {
+                            if UTMConfiguration.supportedDisplayCards(forArchitecture: arch)!.contains("VGA") {
+                                config.displayCard = "VGA" // most devices support VGA
+                            } else {
+                                config.displayConsoleOnly = true
+                                config.shareClipboardEnabled = false
+                                config.shareDirectoryEnabled = false
+                            }
+                        }
+                    }
+                    if let networkCard = config.networkCard {
+                        if !UTMConfiguration.supportedNetworkCards(forArchitecture: arch)!.contains(where: { $0.caseInsensitiveCompare(networkCard) == .orderedSame }) {
+                            config.networkEnabled = false
+                        }
+                    }
+                    if let soundCard = config.soundCard {
+                        if !UTMConfiguration.supportedSoundCards(forArchitecture: arch)!.contains(where: { $0.caseInsensitiveCompare(soundCard) == .orderedSame }) {
+                            config.soundEnabled = false
+                        }
+                    }
                 })
-            VMConfigStringPicker(selection: $config.systemTarget, label: Text("System"), rawValues: UTMConfiguration.supportedTargets(forArchitecture: config.systemArchitecture) ?? [], displayValues: UTMConfiguration.supportedTargets(forArchitecturePretty: config.systemArchitecture) ?? [])
+            VMConfigStringPicker(selection: $config.systemTarget, label: Text("System"), rawValues: UTMConfiguration.supportedTargets(forArchitecture: config.systemArchitecture), displayValues: UTMConfiguration.supportedTargets(forArchitecturePretty: config.systemArchitecture))
                 .onChange(of: config.systemTarget, perform: { value in
                     config.loadDefaults(forTarget: value, architecture: config.systemArchitecture)
                 })

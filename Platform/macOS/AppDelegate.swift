@@ -14,12 +14,8 @@
 // limitations under the License.
 //
 
-#ifndef Bootstrap_h
-#define Bootstrap_h
-
-#include <unistd.h>
-
-pid_t startQemuFork(const char *dylibPath, int argc, const char **argv, int newStdout, int newStderr);
-int startQemuProcess(const char *dylibPath, int argc, const char **argv);
-
-#endif /* Bootstrap_h */
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+}

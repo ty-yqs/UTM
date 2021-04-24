@@ -152,8 +152,6 @@ static size_t sysctl_read(const char *name) {
 - (void)architectureSpecificConfiguration {
     if ([self.configuration.systemArchitecture isEqualToString:@"x86_64"] ||
         [self.configuration.systemArchitecture isEqualToString:@"i386"]) {
-        [self pushArgv:@"-vga"];
-        [self pushArgv:@"qxl"];
         [self pushArgv:@"-global"];
         [self pushArgv:@"PIIX4_PM.disable_s3=1"]; // applies for pc-i440fx-* types
         [self pushArgv:@"-global"];
@@ -169,23 +167,37 @@ static size_t sysctl_read(const char *name) {
             [self pushArgv:@"-bios"];
             [self pushArgv:path.path]; // accessDataWithBookmark called already
         }
-        [self pushArgv:@"-device"];
-        [self pushArgv:@"virtio-ramfb"];
     }
 }
 
-- (NSString *)expandDriveInterface:(NSString *)interface identifier:(NSString *)identifier removable:(BOOL)removable {
-    if ([interface isEqualToString:@"nvme"]) {
+- (NSString *)expandDriveInterface:(NSString *)interface identifier:(NSString *)identifier removable:(BOOL)removable busInterfaceMap:(NSMutableDictionary<NSString *, NSNumber *> *)busInterfaceMap {
+    NSInteger bootindex = [busInterfaceMap[@"boot"] integerValue];
+    NSInteger busindex = [busInterfaceMap[interface] integerValue];
+    if ([interface isEqualToString:@"ide"]) {
         [self pushArgv:@"-device"];
-        [self pushArgv:[NSString stringWithFormat:@"nvme,drive=%@,serial=%@", identifier, identifier]];
-        return @"none";
+        [self pushArgv:[NSString stringWithFormat:@"%@,bus=ide.%lu,drive=%@,bootindex=%lu", removable ? @"ide-cd" : @"ide-hd", busindex++, identifier, bootindex++]];
+    } else if ([interface isEqualToString:@"scsi"]) {
+        if (busindex == 0) {
+            [self pushArgv:@"-device"];
+            [self pushArgv:@"lsi53c895a,id=scsi0"];
+        }
+        [self pushArgv:@"-device"];
+        [self pushArgv:[NSString stringWithFormat:@"%@,bus=scsi0.0,channel=0,scsi-id=%lu,drive=%@,bootindex=%lu", removable ? @"scsi-cd" : @"scsi-hd", busindex++, identifier, bootindex++]];
+    } else if ([interface isEqualToString:@"virtio"]) {
+        [self pushArgv:@"-device"];
+        [self pushArgv:[NSString stringWithFormat:@"%@,drive=%@,bootindex=%lu", [self.configuration.systemArchitecture isEqualToString:@"s390x"] ? @"virtio-blk-ccw" : @"virtio-blk-pci", identifier, bootindex++]];
+    } else if ([interface isEqualToString:@"nvme"]) {
+        [self pushArgv:@"-device"];
+        [self pushArgv:[NSString stringWithFormat:@"nvme,drive=%@,serial=%@,bootindex=%lu", identifier, identifier, bootindex++]];
     } else if ([interface isEqualToString:@"usb"]) {
         [self pushArgv:@"-device"];
-        [self pushArgv:[NSString stringWithFormat:@"usb-storage,drive=%@,removable=%@", identifier, removable ? @"true" : @"false"]];
-        return @"none";
+        [self pushArgv:[NSString stringWithFormat:@"usb-storage,drive=%@,removable=%@,bootindex=%lu", identifier, removable ? @"true" : @"false", bootindex++]];
     } else {
         return interface; // no expand needed
     }
+    busInterfaceMap[@"boot"] = @(bootindex);
+    busInterfaceMap[interface] = @(busindex);
+    return @"none";
 }
 
 - (void)argsForCpu {
@@ -211,6 +223,7 @@ static size_t sysctl_read(const char *name) {
 }
 
 - (void)argsForDrives {
+    NSMutableDictionary<NSString *, NSNumber *> *busInterfaceMap = [NSMutableDictionary dictionary];
     for (NSUInteger i = 0; i < self.configuration.countDrives; i++) {
         NSString *path = [self.configuration driveImagePathForIndex:i];
         UTMDiskImageType type = [self.configuration driveImageTypeForIndex:i];
@@ -233,9 +246,9 @@ static size_t sysctl_read(const char *name) {
             case UTMDiskImageTypeDisk:
             case UTMDiskImageTypeCD: {
                 NSString *interface = [self.configuration driveInterfaceTypeForIndex:i];
-                BOOL removable = type == UTMDiskImageTypeCD;
+                BOOL removable = [self.configuration driveRemovableForIndex:i];
                 NSString *identifier = [NSString stringWithFormat:@"drive%lu", i];
-                NSString *realInterface = [self expandDriveInterface:interface identifier:identifier removable:removable];
+                NSString *realInterface = [self expandDriveInterface:interface identifier:identifier removable:removable busInterfaceMap:busInterfaceMap];
                 NSString *drive;
                 [self pushArgv:@"-drive"];
                 drive = [NSString stringWithFormat:@"if=%@,media=%@,id=%@", realInterface, removable ? @"cdrom" : @"disk", identifier];
@@ -287,7 +300,7 @@ static size_t sysctl_read(const char *name) {
 - (void)argsForNetwork {
     if (self.configuration.networkEnabled) {
         [self pushArgv:@"-device"];
-        [self pushArgv:[NSString stringWithFormat:@"%@,netdev=net0", self.configuration.networkCard]];
+        [self pushArgv:[NSString stringWithFormat:@"%@,mac=%@,netdev=net0", self.configuration.networkCard, self.configuration.networkCardMac]];
         [self pushArgv:@"-netdev"];
         NSMutableString *netstr = [NSMutableString stringWithString:@"user,id=net0"];
         if (self.configuration.networkAddress.length > 0) {
@@ -303,7 +316,7 @@ static size_t sysctl_read(const char *name) {
             [netstr appendFormat:@",ipv6-host=%@", self.configuration.networkHostIPv6];
         }
         if (self.configuration.networkIsolate) {
-            [netstr appendString:@"restrict=on"];
+            [netstr appendString:@",restrict=on"];
         }
         if (self.configuration.networkHost.length > 0) {
             [netstr appendFormat:@",hostname=%@", self.configuration.networkHost];
@@ -339,6 +352,9 @@ static size_t sysctl_read(const char *name) {
     if ([self.configuration.systemTarget hasPrefix:@"virt"]) {
         [self pushArgv:@"-device"];
         [self pushArgv:@"qemu-xhci"];
+    } else if ([self.configuration.systemTarget hasPrefix:@"pc"]) {
+        // USB 1.0 controller for old PC system
+        [self pushArgv:@"-usb"];
     } else { // USB 2.0 controller is most compatible
         [self pushArgv:@"-device"];
         [self pushArgv:@"usb-ehci"];
@@ -455,6 +471,8 @@ static size_t sysctl_read(const char *name) {
     [self pushArgv:@"-S"]; // startup stopped
     [self pushArgv:@"-qmp"];
     [self pushArgv:[NSString stringWithFormat:@"tcp:127.0.0.1:%lu,server,nowait", self.qmpPort]];
+    [self pushArgv:@"-vga"];
+    [self pushArgv:@"none"];// -vga none, avoid adding duplicate graphics cards
     if (self.configuration.displayConsoleOnly) {
         [self pushArgv:@"-nographic"];
         // terminal character device
@@ -470,6 +488,8 @@ static size_t sysctl_read(const char *name) {
     } else {
         [self pushArgv:@"-spice"];
         [self pushArgv:[NSString stringWithFormat:@"port=%lu,addr=127.0.0.1,disable-ticketing,image-compression=off,playback-compression=off,streaming-video=off", self.spicePort]];
+        [self pushArgv:@"-device"];
+        [self pushArgv:self.configuration.displayCard];
     }
 }
 
@@ -495,13 +515,16 @@ static size_t sysctl_read(const char *name) {
     }
     [self pushArgv:@"-m"];
     [self pushArgv:[self.configuration.systemMemory stringValue]];
-#if TARGET_OS_OSX
-    // FIXME: sound support broken after fork(), so we disable for now
-    if (!self.configuration.displayConsoleOnly)
-#endif
-    if (self.configuration.soundEnabled) {
-        [self pushArgv:@"-soundhw"];
-        [self pushArgv:self.configuration.soundCard];
+    // < macOS 11.3 we use fork() which is buggy and things are broken
+    if (@available(macOS 11.3, *)) {
+        if (self.configuration.soundEnabled) {
+            [self pushArgv:@"-device"];
+            [self pushArgv:self.configuration.soundCard];
+            if ([self.configuration.soundCard containsString:@"hda"]) {
+                [self pushArgv:@"-device"];
+                [self pushArgv:@"hda-duplex"];
+            }
+        }
     }
     [self pushArgv:@"-name"];
     [self pushArgv:self.configuration.name];
