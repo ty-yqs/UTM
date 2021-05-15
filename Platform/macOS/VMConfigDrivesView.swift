@@ -55,6 +55,7 @@ struct VMConfigDrivesView: View {
             if config.countDrives == 0 {
                 Text("No drives added.").font(.headline)
             } else {
+                Text("Note: Boot order is as listed.")
                 ForEach(0..<config.countDrives, id: \.self) { index in
                     DriveCard(config: config, index: index)
                 }
@@ -147,8 +148,8 @@ struct VMConfigDrivesView_Previews: PreviewProvider {
             VMConfigDrivesView(config: config)
         }.onAppear {
             if config.countDrives == 0 {
-                config.newDrive("test.img", type: .disk, interface: "ide")
-                config.newDrive("bios.bin", type: .BIOS, interface: "none")
+                config.newDrive("drive0", path: "test.img", type: .disk, interface: "ide")
+                config.newDrive("drive1", path: "bios.bin", type: .BIOS, interface: "none")
             }
         }
     }

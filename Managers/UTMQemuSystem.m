@@ -192,6 +192,11 @@ static size_t sysctl_read(const char *name) {
     } else if ([interface isEqualToString:@"usb"]) {
         [self pushArgv:@"-device"];
         [self pushArgv:[NSString stringWithFormat:@"usb-storage,drive=%@,removable=%@,bootindex=%lu", identifier, removable ? @"true" : @"false", bootindex++]];
+    } else if ([interface isEqualToString:@"floppy"] && [self.configuration.systemTarget hasPrefix:@"q35"]) {
+        [self pushArgv:@"-device"];
+        [self pushArgv:[NSString stringWithFormat:@"isa-fdc,id=fdc%lu,bootindexA=%lu", busindex, bootindex++]];
+        [self pushArgv:@"-device"];
+        [self pushArgv:[NSString stringWithFormat:@"floppy,unit=0,bus=fdc%lu.0,drive=%@", busindex++, identifier]];
     } else {
         return interface; // no expand needed
     }
@@ -246,8 +251,8 @@ static size_t sysctl_read(const char *name) {
             case UTMDiskImageTypeDisk:
             case UTMDiskImageTypeCD: {
                 NSString *interface = [self.configuration driveInterfaceTypeForIndex:i];
-                BOOL removable = [self.configuration driveRemovableForIndex:i];
-                NSString *identifier = [NSString stringWithFormat:@"drive%lu", i];
+                BOOL removable = (type == UTMDiskImageTypeCD) || [self.configuration driveRemovableForIndex:i];
+                NSString *identifier = [self.configuration driveNameForIndex:i];
                 NSString *realInterface = [self expandDriveInterface:interface identifier:identifier removable:removable busInterfaceMap:busInterfaceMap];
                 NSString *drive;
                 [self pushArgv:@"-drive"];
@@ -352,12 +357,8 @@ static size_t sysctl_read(const char *name) {
     if ([self.configuration.systemTarget hasPrefix:@"virt"]) {
         [self pushArgv:@"-device"];
         [self pushArgv:@"qemu-xhci"];
-    } else if ([self.configuration.systemTarget hasPrefix:@"pc"]) {
-        // USB 1.0 controller for old PC system
-        [self pushArgv:@"-usb"];
     } else { // USB 2.0 controller is most compatible
-        [self pushArgv:@"-device"];
-        [self pushArgv:@"usb-ehci"];
+        [self pushArgv:@"-usb"];
     }
     // set up USB input devices unless user requested legacy (QEMU default PS/2 input)
     if (!self.configuration.inputLegacy) {
@@ -505,25 +506,33 @@ static size_t sysctl_read(const char *name) {
     [self pushArgv:[self tcgAccelProperties]];
     [self architectureSpecificConfiguration];
     [self targetSpecificConfiguration];
-    if (![self.configuration.systemBootDevice isEqualToString:@"hdd"]) {
-        [self pushArgv:@"-boot"];
+    // legacy boot order; new bootindex uses drive ordering
+    [self pushArgv:@"-boot"];
+    if (self.configuration.systemBootDevice.length > 0 && ![self.configuration.systemBootDevice isEqualToString:@"hdd"]) {
         if ([self.configuration.systemBootDevice isEqualToString:@"floppy"]) {
             [self pushArgv:@"order=ab"];
         } else {
             [self pushArgv:@"order=d"];
         }
+    } else {
+        [self pushArgv:@"menu=on"];
     }
     [self pushArgv:@"-m"];
     [self pushArgv:[self.configuration.systemMemory stringValue]];
     // < macOS 11.3 we use fork() which is buggy and things are broken
+    BOOL forceDisableSound = NO;
     if (@available(macOS 11.3, *)) {
-        if (self.configuration.soundEnabled) {
+    } else {
+        if (self.configuration.displayConsoleOnly) {
+            forceDisableSound = YES;
+        }
+    }
+    if (self.configuration.soundEnabled && !forceDisableSound) {
+        [self pushArgv:@"-device"];
+        [self pushArgv:self.configuration.soundCard];
+        if ([self.configuration.soundCard containsString:@"hda"]) {
             [self pushArgv:@"-device"];
-            [self pushArgv:self.configuration.soundCard];
-            if ([self.configuration.soundCard containsString:@"hda"]) {
-                [self pushArgv:@"-device"];
-                [self pushArgv:@"hda-duplex"];
-            }
+            [self pushArgv:@"hda-duplex"];
         }
     }
     [self pushArgv:@"-name"];
