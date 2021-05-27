@@ -4,6 +4,7 @@ on:
     branches:
       - 'master'
       - 'dev'
+      - 'URL-Scheme'
     tags-ignore:
       - '**'
     paths-ignore:
